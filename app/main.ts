@@ -26,6 +26,65 @@ function executeProgramme(
   });
 }
 
+function parseCommandLine(input: string): { cmd: string; args: string[] } {
+  const tokens: string[] = [];
+  let current = "";
+  let inSingleQuote = false;
+  let inDoubleQuote = false;
+  let escaping = false;
+
+  for (let i = 0; i < input.length; i++) {
+    const char = input[i];
+
+    if (escaping) {
+      current += char;
+      escaping = false;
+      continue;
+    }
+
+    if (char === "'" && !inDoubleQuote) {
+      inSingleQuote = !inSingleQuote;
+      continue;
+    }
+
+    if (char === '"' && !inSingleQuote) {
+      inDoubleQuote = !inDoubleQuote;
+      continue;
+    }
+
+    if (char === "\\" && !inSingleQuote) {
+      // In double quotes: only escape " and \ (for now)
+      if (inDoubleQuote) {
+        const next = input[i + 1];
+        if (next === '"' || next === "\\") {
+          i++;
+          current += next;
+          continue;
+        }
+      } else {
+        // Outside quotes: escape next character literally
+        escaping = true;
+        continue;
+      }
+    }
+
+    if (!inSingleQuote && !inDoubleQuote && /\s/.test(char)) {
+      if (current.length > 0) {
+        tokens.push(current);
+        current = "";
+      }
+      continue;
+    }
+
+    current += char;
+  }
+
+  if (current.length > 0) tokens.push(current);
+
+  const [cmd, ...args] = tokens;
+  return { cmd, args };
+}
+
 const main = async () => {
   while (true) {
     const answer = await new Promise<string>((resolve) => {
@@ -34,7 +93,7 @@ const main = async () => {
       });
     });
 
-    const [cmd, ...args] = answer.trim().split(" ");
+    const { cmd, args } = parseCommandLine(answer.trim());
 
     if (cmd in commonCallBackMap) {
       commonCallBackMap[cmd](args);

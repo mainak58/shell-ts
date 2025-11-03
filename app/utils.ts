@@ -3,7 +3,7 @@ import { typeFunction } from "./type";
 
 export const commonCallBackMap: Record<string, (args: string[]) => void> = {
   exit: (_: string[]) => process.exit(0),
-  echo: (args: string[]) => console.log(...args),
+  echo: (args: string[]) => echoFunction(...args),
   pwd: (_: string[]) => console.log(process.cwd()),
   type: (args: string[]) => typeFunction(args, commonCallBackMap),
   cd: (args: string[]) => {
@@ -23,3 +23,7 @@ export const commonCallBackMap: Record<string, (args: string[]) => void> = {
     else console.error(`cd: ${args[0]}: No such file or directory`);
   },
 };
+
+export function echoFunction(...args: string[]): void {
+  console.log(args.join(" "));
+}
