@@ -2,11 +2,11 @@ import { existsSync } from "fs";
 import { typeFunction } from "./type";
 
 export const commonCallBackMap: Record<string, (args: string[]) => void> = {
-  exit: (_: string[]) => process.exit(0),
-  echo: (args: string[]) => echoFunction(...args),
-  pwd: (_: string[]) => console.log(process.cwd()),
-  type: (args: string[]) => typeFunction(args, commonCallBackMap),
-  cd: (args: string[]) => {
+  exit: () => process.exit(0),
+  echo: (args) => echoFunction(...args),
+  pwd: () => console.log(process.cwd()),
+  type: (args) => typeFunction(args, commonCallBackMap),
+  cd: (args) => {
     const targetDir =
       args.length === 0
         ? process.env.HOME

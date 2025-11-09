@@ -1,60 +1,84 @@
+import { createWriteStream } from "fs";
+import readline from "readline";
 import { spawn } from "child_process";
-import { createInterface } from "readline";
-
-import { commonCallBackMap } from "./utils";
 import { findCommonPath } from "./helper";
+import { commonCallBackMap } from "./utils";
 
-const rl = createInterface({
+const rl = readline.createInterface({
   input: process.stdin,
   output: process.stdout,
+  terminal: true,
 });
 
 function executeProgramme(
   commandPath: string,
   commandName: string,
-  args: string[]
+  args: string[],
+  outputFile?: string,
+  errorFile?: string,
+  appendOutput?: boolean,
+  appendError?: boolean
 ): Promise<void> {
   return new Promise((resolve) => {
-    const childProcess = spawn(commandPath, args, {
-      stdio: "inherit",
+    const stdio: any = ["inherit", "pipe", "pipe"];
+
+    const child = spawn(commandPath, args, {
+      stdio,
       argv0: commandName,
     });
 
-    childProcess.on("close", () => {
-      resolve();
-    });
+    // stdout redirection
+    if (outputFile) {
+      const outStream = createWriteStream(outputFile, {
+        flags: appendOutput ? "a" : "w",
+      });
+      child.stdout.pipe(outStream);
+    } else {
+      child.stdout.pipe(process.stdout);
+    }
+
+    // stderr redirection
+    if (errorFile) {
+      const errStream = createWriteStream(errorFile, {
+        flags: appendError ? "a" : "w",
+      });
+      child.stderr.pipe(errStream);
+    } else {
+      child.stderr.pipe(process.stderr);
+    }
+
+    child.on("close", () => resolve());
   });
 }
 
-function parseCommandLine(input: string): { cmd: string; args: string[] } {
+function parseCommand(input: string): { cmd: string; args: string[] } {
   const tokens: string[] = [];
   let current = "";
-  let inSingleQuote = false;
-  let inDoubleQuote = false;
+  let inSingle = false;
+  let inDouble = false;
   let escaping = false;
 
   for (let i = 0; i < input.length; i++) {
-    const char = input[i];
+    const ch = input[i];
 
     if (escaping) {
-      current += char;
+      current += ch;
       escaping = false;
       continue;
     }
 
-    if (char === "'" && !inDoubleQuote) {
-      inSingleQuote = !inSingleQuote;
+    if (ch === "'" && !inDouble) {
+      inSingle = !inSingle;
       continue;
     }
 
-    if (char === '"' && !inSingleQuote) {
-      inDoubleQuote = !inDoubleQuote;
+    if (ch === '"' && !inSingle) {
+      inDouble = !inDouble;
       continue;
     }
 
-    if (char === "\\" && !inSingleQuote) {
-      // In double quotes: only escape " and \ (for now)
-      if (inDoubleQuote) {
+    if (ch === "\\" && !inSingle) {
+      if (inDouble) {
         const next = input[i + 1];
         if (next === '"' || next === "\\") {
           i++;
@@ -62,24 +86,23 @@ function parseCommandLine(input: string): { cmd: string; args: string[] } {
           continue;
         }
       } else {
-        // Outside quotes: escape next character literally
         escaping = true;
         continue;
       }
     }
 
-    if (!inSingleQuote && !inDoubleQuote && /\s/.test(char)) {
-      if (current.length > 0) {
+    if (!inSingle && !inDouble && /\s/.test(ch)) {
+      if (current) {
         tokens.push(current);
         current = "";
       }
       continue;
     }
 
-    current += char;
+    current += ch;
   }
 
-  if (current.length > 0) tokens.push(current);
+  if (current) tokens.push(current);
 
   const [cmd, ...args] = tokens;
   return { cmd, args };
@@ -87,22 +110,81 @@ function parseCommandLine(input: string): { cmd: string; args: string[] } {
 
 const main = async () => {
   while (true) {
-    const answer = await new Promise<string>((resolve) => {
-      rl.question("$ ", (answer) => {
-        resolve(answer);
-      });
+    const input = await new Promise<string>((resolve) => {
+      rl.question("$ ", resolve);
     });
 
-    const { cmd, args } = parseCommandLine(answer.trim());
+    if (!input.trim()) continue;
+    let trimmed = input.trim();
+
+    let outputFile: string | undefined;
+    let errorFile: string | undefined;
+    let appendOutput = false;
+    let appendError = false;
+
+    const appendOutMatch = trimmed.match(/(?:^|\s)(?:1?>>|>>)\s*([^\s]+)$/);
+    if (appendOutMatch) {
+      outputFile = appendOutMatch[1];
+      appendOutput = true;
+      trimmed = trimmed.replace(/(?:^|\s)(?:1?>>|>>)\s*[^\s]+$/, "").trim();
+    }
+
+    const outMatch = trimmed.match(/(?:^|\s)(?:1?>)\s*([^\s]+)$/);
+    if (outMatch && !appendOutput) {
+      outputFile = outMatch[1];
+      trimmed = trimmed.replace(/(?:^|\s)(?:1?>)\s*[^\s]+$/, "").trim();
+    }
+
+    const appendErrMatch = trimmed.match(/(?:^|\s)2>>\s*([^\s]+)$/);
+    if (appendErrMatch) {
+      errorFile = appendErrMatch[1];
+      appendError = true;
+      trimmed = trimmed.replace(/(?:^|\s)2>>\s*[^\s]+$/, "").trim();
+    }
+
+    const errMatch = trimmed.match(/(?:^|\s)2>\s*([^\s]+)$/);
+    if (errMatch && !appendError) {
+      errorFile = errMatch[1];
+      trimmed = trimmed.replace(/(?:^|\s)2>\s*[^\s]+$/, "").trim();
+    }
+
+    const { cmd, args } = parseCommand(trimmed);
 
     if (cmd in commonCallBackMap) {
+      const origLog = console.log;
+      const origErr = console.error;
+
+      if (outputFile) {
+        const outStream = createWriteStream(outputFile, {
+          flags: appendOutput ? "a" : "w",
+        });
+        console.log = (...msg) => outStream.write(msg.join(" ") + "\n");
+      }
+      if (errorFile) {
+        const errStream = createWriteStream(errorFile, {
+          flags: appendError ? "a" : "w",
+        });
+        console.error = (...msg) => errStream.write(msg.join(" ") + "\n");
+      }
+
       commonCallBackMap[cmd](args);
+
+      console.log = origLog;
+      console.error = origErr;
     } else {
-      const commandPath = findCommonPath(cmd);
-      if (commandPath) {
-        await executeProgramme(commandPath, cmd, args);
+      const path = findCommonPath(cmd);
+      if (path) {
+        await executeProgramme(
+          path,
+          cmd,
+          args,
+          outputFile,
+          errorFile,
+          appendOutput,
+          appendError
+        );
       } else {
-        console.log(`${cmd}: command not found`);
+        console.error(`${cmd}: command not found`);
       }
     }
   }
