@@ -4,10 +4,27 @@ import { spawn } from "child_process";
 import { findCommonPath } from "./helper";
 import { commonCallBackMap } from "./utils";
 
+const builtins = ["echo", "exit", "type", "pwd", "cd"];
+
+function completer(line: string): [string[], string] {
+  const completions = builtins;
+  const split = line.trim().split(/\s+/);
+
+  if (split.length === 1) {
+    const hits = completions
+      .filter((cmd) => cmd.startsWith(split[0]))
+      .map((cmd) => cmd + " ");
+    return [hits.length ? hits : completions.map((c) => c + " "), line];
+  }
+
+  return [[], line];
+}
+
 const rl = readline.createInterface({
   input: process.stdin,
   output: process.stdout,
   terminal: true,
+  completer,
 });
 
 function executeProgramme(
